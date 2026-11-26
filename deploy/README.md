@@ -65,6 +65,13 @@ As `groundup`:
     env/bin/pip install -r requirements.txt
     sudo systemctl restart gunicorn_statsreport
 
+## Saved reports
+
+Each report is saved in `/home/groundup/statsreport/reports/` the first time
+it's opened, and shown from there until someone presses Regenerate. The
+folder is created automatically. Deleting a file there has the same effect
+as Regenerate.
+
 ## When something goes wrong
 
 - Report errors and warnings (e.g. "Videos could not be analysed"):

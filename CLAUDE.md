@@ -64,7 +64,8 @@ arguments so they can be understood and tested on their own.
 - `counter.py`: `republication_hits(...)`, see section 3.
 - `videos.py`: `fetch_sheet`, `month_videos`, `videos_summary`, see section 4.
 - `web.py`: Flask web interface (see "Web interface" below).
-- `templates/form.html`: the web form (ordinary CSS; not part of the email).
+- `templates/form.html`, `templates/toolbar.html`: the web form and the
+  report toolbar (ordinary CSS; not part of the email).
 - `requirements.txt`: `requests`, `jinja2`, `flask`, `gunicorn`.
 
 ## Report sections (plan)
@@ -203,10 +204,22 @@ keeps the two codebases independent).
 - `/report/`: form listing the last `FORM_MONTHS` (24) finished months;
   submits to `/report/?month=YYYYMM`, which redirects (relatively) to
   `/report/YYYYMM/`. Only six-digit values are redirected (no open redirect).
-- `/report/YYYYMM/`: `report.build_report(month)`; the page is exactly the
-  email HTML so it can be copy-pasted into an email. Invalid/unfinished
-  months 404; a data-source failure gives a readable 500 page, with the
-  traceback in gunicorn's log.
+- `/report/YYYYMM/`: shows the **saved** report from `reports/` (gitignored,
+  next to `web.py`); generates and saves it first if there's none
+  (`report.build_report`, written to a .tmp file then renamed). Saved
+  reports are kept until regenerated (owner's choice: one person runs it
+  once or twice a month; a burst of simultaneous generations once made
+  Matomo return 500s on the big range query). Invalid/unfinished months
+  404; a data-source failure gives a readable 500 page, with the traceback
+  in gunicorn's log.
+- `POST /report/YYYYMM/regenerate/`: the Regenerate button; 303 back to the
+  report. POST only (no accidental regeneration by prefetch/bots). On
+  failure the saved copy is kept.
+- The page is the saved email HTML plus `templates/toolbar.html` (back
+  link, "generated at", Regenerate), inserted right after `<body>` as the
+  page is sent, never saved. It has `user-select: none` so Ctrl+A copying
+  should skip it (not yet confirmed by the owner in a real paste).
+- The form marks months with a saved report "(saved)".
 - No auth in the app: nginx basic auth protects `/report/` (same users as
   `/stats/`). `ProxyFix(x_proto=1, x_host=1)` so redirects keep https.
 - Server: same machine as the counter, gunicorn under systemd, nginx proxies

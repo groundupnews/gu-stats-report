@@ -5,3 +5,4 @@ __pycache__/
 *.html
 env/
 !templates/*.html
+reports/

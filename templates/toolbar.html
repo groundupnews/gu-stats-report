@@ -1,0 +1,12 @@
+{#- Toolbar shown above a report in the web interface (web.py). It is added
+    as the page is sent and never saved with the report. "user-select: none"
+    makes browsers leave it out when the page is selected (Ctrl+A) and
+    copied, so it doesn't end up in the email. -#}
+<div style="user-select: none; -webkit-user-select: none; background: #ebebe0; border-bottom: 1px solid #d6d6da; padding: 8px 12px; font-family: Inter, 'Helvetica Neue', Arial, sans-serif; font-size: 13px; color: #4d4d4d;">
+<form method="post" action="regenerate/" style="margin: 0;">
+<a href="/report/" style="color: #0250bb; text-decoration: none;">&larr; Choose another month</a>
+&nbsp;&middot;&nbsp; Saved report, generated {{ saved_at }}.
+&nbsp;<button type="submit" style="font: inherit; padding: 3px 10px; background: #0250bb; color: #ffffff; border: 0; border-radius: 4px; cursor: pointer;">Regenerate</button>
+<span style="white-space: nowrap;">(takes about 10 seconds)</span>
+</form>
+</div>

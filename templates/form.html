@@ -25,17 +25,18 @@
   <form method="get" action="">
     <label for="month">Month</label>
     <select id="month" name="month">
-      {% for m in months %}
-      <option value="{{ m.year }}{{ '%02d' % m.month }}">{{ m }}</option>
+      {% for value, label in options %}
+      <option value="{{ value }}">{{ label }}</option>
       {% endfor %}
     </select>
-    <button type="submit">Generate report</button>
+    <button type="submit">Show report</button>
   </form>
-  <p>Generating a report takes about 10 seconds. To email it, select the
-  whole report page (Ctrl+A), copy it (Ctrl+C) and paste it into a new
-  email.</p>
+  <p>A month marked "(saved)" opens straight away. Otherwise the report is
+  generated first, which takes about 10 seconds, and then saved for everyone.</p>
+  <p>To email it, select the whole report page (Ctrl+A), copy it (Ctrl+C) and
+  paste it into a new email.</p>
   <p>Article and republication figures count up to the moment the report
-  is generated, so they grow if you generate it again later.</p>
+  was generated. Use the Regenerate button on a report for fresh figures.</p>
 </main>
 </body>
 </html>
