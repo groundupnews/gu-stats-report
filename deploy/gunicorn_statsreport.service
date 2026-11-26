@@ -1,0 +1,25 @@
+# systemd unit for the stats report web interface (web.py under gunicorn),
+# as installed on the GroundUp server.
+#
+# Install:  sudo cp deploy/gunicorn_statsreport.service /etc/systemd/system/
+#           sudo systemctl daemon-reload
+#           sudo systemctl enable --now gunicorn_statsreport
+
+[Unit]
+Description=GroundUp stats report Flask app
+After=network.target
+
+[Service]
+User=groundup
+Group=www-data
+WorkingDirectory=/home/groundup/statsreport
+Environment="PATH=/home/groundup/statsreport/env/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/home/groundup/bin"
+# 2 workers so a second person isn't blocked while a report is generated;
+# --timeout matches nginx's proxy_read_timeout (a report takes ~6 s).
+# Listens only on localhost: nginx, with its basic auth, is the way in.
+# web:app means "the variable app in web.py".
+ExecStart=/home/groundup/statsreport/env/bin/gunicorn --workers 2 --timeout 120 --bind 127.0.0.1:5001 --chdir /home/groundup/statsreport web:app
+Restart=always
+
+[Install]
+WantedBy=multi-user.target

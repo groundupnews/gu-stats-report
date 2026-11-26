@@ -214,9 +214,17 @@ keeps the two codebases independent).
   stripping). A real report takes ~6 s; timeouts 120 s for headroom.
 - Local: `env/bin/flask --app web run --port 5001`, open
   http://127.0.0.1:5001/report/
-- **Status: written and tested locally (Flask test client, gunicorn
-  start-up). Deployment files (systemd unit, nginx location) pending the
-  owner's existing counter config.**
+- `web.py` sets `Cache-Control: no-store` itself. Don't use `add_header` in
+  the nginx location: it would stop the server-level security headers
+  (HSTS, nosniff, X-Frame-Options) being inherited.
+- `deploy/`: `nginx-report.conf` (location block for the counter's server
+  block: same basic auth as /stats/, `access_log off` to keep requests out
+  of the pixel log, 120 s timeout), `gunicorn_statsreport.service` (as on the
+  server: user `groundup`, `/home/groundup/statsreport`, gunicorn 2 workers,
+  127.0.0.1:5001, `web:app`),
+  `README.md` (install/update/troubleshooting steps).
+- **Status: being deployed by the owner** (systemd unit installed; first
+  attempt failed with 203/EXEC: virtualenv to be recreated on the server).
 
 ## Where it runs
 

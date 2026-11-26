@@ -35,6 +35,16 @@ app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
 FORM_MONTHS = 24
 
 
+@app.after_request
+def no_caching(response):
+    """Tell browsers (and any proxy) not to store these pages: they hold
+    internal figures, and a cached report would hide newer numbers. Set here
+    rather than in nginx, where an add_header in the location block would
+    switch off the server's security headers."""
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+
 def finished_months(today=None):
     """The FORM_MONTHS most recent finished months, most recent first."""
     today = today or datetime.date.today()
