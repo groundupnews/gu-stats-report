@@ -304,11 +304,11 @@ def render_report(context):
     return env.get_template("report.html").render(context)
 
 
-def main(argv=None):
-    args = parse_args(argv)
-    month = args.month
+def build_report(month, warn_others=False):
+    """Fetch all the figures for `month` (a periods.Month) and return the
+    report as an HTML string. Used by the command line (main() below) and
+    the web interface (web.py)."""
     months = [month, month.previous(), month.year_earlier()]
-    output = args.output or f"report-{month.year}{month.month:02d}.html"
     matomo = Matomo(settings.MATOMO_URL, settings.MATOMO_TOKEN)
 
     # --- 1. GroundUp website headline figures -------------------------------
@@ -334,7 +334,7 @@ def main(argv=None):
         period="range",
         date=f"{month.first_day.isoformat()},{today.isoformat()}",
         path_prefix="/article/",
-        warn_others=args.warnothers,
+        warn_others=warn_others,
     )
 
     # --- 2b. Most viewed Q&As ---------------------------------------------------
@@ -346,7 +346,7 @@ def main(argv=None):
         period="month",
         date=month.matomo_date,
         path_prefix="/qanda/",
-        warn_others=args.warnothers,
+        warn_others=warn_others,
     )
     # Keep single Q&As only, not the index page.
     qanda_pageviews = {
@@ -379,11 +379,11 @@ def main(argv=None):
         settings.MATOMO_SITE_ID_PUZZLES,
         period="month",
         date=month.matomo_date,
-        warn_others=args.warnothers,
+        warn_others=warn_others,
     )
 
-    # --- Render and write the HTML ------------------------------------------
-    html = render_report({
+    # --- Render the HTML ---------------------------------------------------------
+    return render_report({
         "month": month,
         "months": months,
         "generated": datetime.datetime.now().strftime("%-d %B %Y, %H:%M"),
@@ -403,6 +403,14 @@ def main(argv=None):
         "puzzle_pages": top_pages(puzzle_pageviews, TOP_PUZZLE_PAGES),
         "puzzles_site_url": PUZZLES_SITE_URL,
     })
+
+
+def main(argv=None):
+    """Command line: build the report and write it to a file."""
+    args = parse_args(argv)
+    month = args.month
+    output = args.output or f"report-{month.year}{month.month:02d}.html"
+    html = build_report(month, warn_others=args.warnothers)
     Path(output).write_text(html, encoding="utf-8")
     print(f"Wrote {output}")
 

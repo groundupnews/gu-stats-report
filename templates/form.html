@@ -1,0 +1,41 @@
+{# The /report/ form (web.py). Not part of the email, so ordinary CSS is fine. #}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GroundUp stats report</title>
+<style>
+  body { margin: 0; background: #ffffff; color: #151f22;
+         font-family: Inter, 'Helvetica Neue', Arial, sans-serif; }
+  header { background: #151f22; border-bottom: 4px solid #00b1f0;
+           color: #ffffff; padding: 16px 20px; font-size: 22px; font-weight: bold; }
+  main { max-width: 520px; margin: 0 auto; padding: 24px 16px; }
+  label { display: block; font-weight: bold; margin-bottom: 6px; }
+  select, button { font: inherit; padding: 8px 10px; }
+  select { border: 1px solid #d6d6da; border-radius: 4px; min-width: 200px; }
+  button { background: #0250bb; color: #ffffff; border: 0; border-radius: 4px;
+           cursor: pointer; margin-left: 8px; }
+  p { color: #4d4d4d; font-size: 14px; line-height: 1.5; }
+</style>
+</head>
+<body>
+<header>GroundUp stats report</header>
+<main>
+  <form method="get" action="">
+    <label for="month">Month</label>
+    <select id="month" name="month">
+      {% for m in months %}
+      <option value="{{ m.year }}{{ '%02d' % m.month }}">{{ m }}</option>
+      {% endfor %}
+    </select>
+    <button type="submit">Generate report</button>
+  </form>
+  <p>Generating a report takes about 10 seconds. To email it, select the
+  whole report page (Ctrl+A), copy it (Ctrl+C) and paste it into a new
+  email.</p>
+  <p>Article and republication figures count up to the moment the report
+  is generated, so they grow if you generate it again later.</p>
+</main>
+</body>
+</html>

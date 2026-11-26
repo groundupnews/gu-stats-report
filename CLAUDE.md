@@ -37,7 +37,8 @@ arguments so they can be understood and tested on their own.
 
 ## Files
 
-- `report.py`: CLI entry point. Parses the arguments, loads settings, fetches
+- `report.py`: CLI entry point. `build_report(month, warn_others)` returns
+  the HTML (used by the CLI `main()` and by `web.py`). Loads settings, fetches
   all data, prepares it (`popular_articles`, `republished_articles`,
   `top_pages`) and renders `templates/report.html` (`render_report`). Jinja2
   filters: `number`, `duration`, `pct_change` (returns a float; the template
@@ -62,7 +63,9 @@ arguments so they can be understood and tested on their own.
   section 2 (`range`, prefix `/article/`) and section 5 (`month`, no prefix).
 - `counter.py`: `republication_hits(...)`, see section 3.
 - `videos.py`: `fetch_sheet`, `month_videos`, `videos_summary`, see section 4.
-- `requirements.txt`: `requests`, `jinja2`.
+- `web.py`: Flask web interface (see "Web interface" below).
+- `templates/form.html`: the web form (ordinary CSS; not part of the email).
+- `requirements.txt`: `requests`, `jinja2`, `flask`, `gunicorn`.
 
 ## Report sections (plan)
 
@@ -193,6 +196,28 @@ arguments so they can be understood and tested on their own.
    wrapper script. Log output, and **notify on failure**: a report that never
    arrives without anyone noticing is the main risk.
 
+## Web interface
+
+`web.py`, a small Flask app, separate from the counter app (owner's choice:
+keeps the two codebases independent).
+- `/report/`: form listing the last `FORM_MONTHS` (24) finished months;
+  submits to `/report/?month=YYYYMM`, which redirects (relatively) to
+  `/report/YYYYMM/`. Only six-digit values are redirected (no open redirect).
+- `/report/YYYYMM/`: `report.build_report(month)`; the page is exactly the
+  email HTML so it can be copy-pasted into an email. Invalid/unfinished
+  months 404; a data-source failure gives a readable 500 page, with the
+  traceback in gunicorn's log.
+- No auth in the app: nginx basic auth protects `/report/` (same users as
+  `/stats/`). `ProxyFix(x_proto=1, x_host=1)` so redirects keep https.
+- Server: same machine as the counter, gunicorn under systemd, nginx proxies
+  `/report/` to it (routes include the `/report/` prefix; no prefix
+  stripping). A real report takes ~6 s; timeouts 120 s for headroom.
+- Local: `env/bin/flask --app web run --port 5001`, open
+  http://127.0.0.1:5001/report/
+- **Status: written and tested locally (Flask test client, gunicorn
+  start-up). Deployment files (systemd unit, nginx location) pending the
+  owner's existing counter config.**
+
 ## Where it runs
 
 On the GroundUp server via cron, but it must also run remotely (e.g. on the
@@ -204,7 +229,11 @@ machine-specific.
 
 1. Owner runs the HTML report (incl. Q&As) on real data and checks it in a browser
    (and ideally in Gmail/Outlook).
-2. Then email and cron.
+2. Email and cron are **on hold**: for the first few months the owner runs
+   the report by hand and copy-pastes it from the browser into an email
+   (Ctrl+A, Ctrl+C, paste into Gmail/Outlook). Keep the template paste-safe
+   (inline styles, plain tables). When resumed: `--email` via `smtplib`
+   (likely Google Workspace SMTP with an app password), then cron.
 3. Open question from section 2: article avg time on page is very low
    (0:10-0:30), probably because Matomo can't time single-page visits without
    the heartbeat timer. Decide whether to enable it or drop the column.
