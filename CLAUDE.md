@@ -85,7 +85,10 @@ arguments so they can be understood and tested on their own.
 3. **Republication counts** from https://counter.groundup.org.za/stats/ for
    articles published in the month with more than 1,000 **republication**
    hits (`REPUBLISHED_MIN_HITS`). An independent report and a separate table
-   (article, published, sites, hits): it does not depend on Matomo views.
+   (article, published, sites, hits, top sites): it does not depend on
+   Matomo views. "Top sites" lists up to three sites with the most hits,
+   e.g. `news24.com (950), iol.co.za (600)`, but only sites with more than
+   `TOP_SITE_MIN_HITS` (500) hits; it can be empty.
    - The counter is a Flask app the owner controls (repo
      `groundupnews/counter`, originally written with Claude). Articles are
      identified by **pk** (`https://groundup.org.za/newsbypk/<pk>/`).

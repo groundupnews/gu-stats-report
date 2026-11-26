@@ -34,9 +34,14 @@ def republication_hits(counter_url, username, password, start, end, timeout=60):
     `start` and `end` are datetime.date objects. Returns a dict keyed by
     article pk (an int), e.g.
 
-        {17291: {"hits": 5321, "sites": 4}, ...}
+        {17291: {"hits": 5321,
+                 "sites": 4,
+                 "top_sites": [("news24.com", 4100), ("iol.co.za", 900),
+                               ("dailymaverick.co.za", 300)]},
+         ...}
 
-    where "sites" is the number of different sites the hits came from.
+    where "sites" is the number of different sites the hits came from and
+    "top_sites" the (up to) three with the most hits, most first.
     """
     url = f"{counter_url.rstrip('/')}/stats/{start:%Y%m%d}/{end:%Y%m%d}"
     params = {"format": "csv", "exclude": EXCLUDE_SITES}  # a list => repeated
@@ -50,11 +55,15 @@ def republication_hits(counter_url, username, password, start, end, timeout=60):
         if not row["article_id"]:
             continue  # a pixel not named after an article; can't be matched
         # Normally one row per site, but an article could have more than one
-        # pixel name, so collect the sites in a set to count each only once.
-        t = totals.setdefault(int(row["article_id"]), {"hits": 0, "sites": set()})
-        t["hits"] += int(row["hits"])
-        t["sites"].add(row["referrer"])
+        # pixel name, so add up hits per site rather than per row.
+        t = totals.setdefault(int(row["article_id"]), {"hits": 0, "sites": {}})
+        hits = int(row["hits"])
+        t["hits"] += hits
+        t["sites"][row["referrer"]] = t["sites"].get(row["referrer"], 0) + hits
 
     for t in totals.values():
-        t["sites"] = len(t["sites"])  # we only need how many
+        per_site = t["sites"]  # e.g. {"news24.com": 4100, "iol.co.za": 900}
+        t["sites"] = len(per_site)
+        # Sort (site, hits) pairs by hits, most first, and keep three.
+        t["top_sites"] = sorted(per_site.items(), key=lambda s: s[1], reverse=True)[:3]
     return totals

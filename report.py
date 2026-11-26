@@ -42,6 +42,9 @@ ARTICLE_MIN_PAGEVIEWS = 1000
 # Only articles with more republication hits than this are listed.
 REPUBLISHED_MIN_HITS = 1000
 
+# In the "Top sites" column, only sites with more hits than this are listed.
+TOP_SITE_MIN_HITS = 500
+
 
 def month_arg(text):
     """argparse 'type' function: turns 'YYYYMM' into a Month."""
@@ -165,14 +168,20 @@ def republished_articles(articles, hits):
 
 
 def print_republished(title, articles):
-    """Print a table of articles: slug, published, sites, republication hits."""
-    headers = ["Article", "Published", "Sites", "Hits"]
+    """Print a table of articles: slug, published, sites, hits, top sites."""
+    headers = ["Article", "Published", "Sites", "Hits", "Top sites"]
     rows = [
         [
             a["slug"],
             a["published"].strftime("%d %b"),
             fmt_value(a["sites"], "number"),
             fmt_value(a["hits"], "number"),
+            # e.g. "news24.com (4,100), iol.co.za (900)"
+            ", ".join(
+                f"{site} ({hits:,})"
+                for site, hits in a["top_sites"]
+                if hits > TOP_SITE_MIN_HITS
+            ),
         ]
         for a in articles
     ]
