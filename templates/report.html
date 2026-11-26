@@ -41,8 +41,8 @@
 {# Every second row is lightly shaded, to help the eye along wide tables. #}
 {% macro row_start(loop) %}<tr{% if loop.even %} bgcolor="{{ stripe }}"{% endif %}>{% endmacro %}
 
-{# A figure formatted according to its kind: "number" or "duration". #}
-{% macro fmt(value, kind) %}{% if kind == "duration" %}{{ value|duration }}{% else %}{{ value|number }}{% endif %}{% endmacro %}
+{# A figure formatted according to its kind: "number", "duration" or "money". #}
+{% macro fmt(value, kind) %}{% if kind == "duration" %}{{ value|duration }}{% elif kind == "money" %}{{ value|money }}{% else %}{{ value|number }}{% endif %}{% endmacro %}
 
 {# A percentage change: green ▲ if up, red ▼ if down, grey if none/unknown. #}
 {% macro change(current, previous) %}
@@ -127,6 +127,43 @@
 {% endfor %}
 </table>
 
+{# ---- 4. Videos (left out if the sheet couldn't be analysed: see the
+     notice at the bottom) ---- #}
+{% if not video.error %}
+<h2 style="{{ h2 }}">Videos</h2>
+<p style="{{ note }}">Views on social media, from the video team's sheet. Totals are added up from the video rows.</p>
+{{ summary_table(video.summaries, video.summary_rows) }}
+<p style="{{ note }}">&nbsp;</p>
+{# One row per video; columns that are empty this month are left out. #}
+{{ table_start(video.headers) }}
+{% for v in video.videos %}
+{{ row_start(loop) }}
+{%- for key, heading, kind in video.columns -%}
+{%- if kind == "date" -%}
+<td nowrap>{{ v.date.strftime("%-d %b") if v.date else v.date_text }}</td>
+{%- elif kind == "text" -%}
+<td>{{ v[key] }}</td>
+{%- elif v[key] is none -%}
+<td align="right">&ndash;</td>
+{%- else -%}
+<td align="right" nowrap>{{ fmt(v[key], kind) }}</td>
+{%- endif -%}
+{%- endfor -%}
+</tr>
+{% endfor %}
+{# The total row. #}
+<tr bgcolor="{{ panel }}">
+{%- for key, heading, kind in video.columns -%}
+{%- if loop.first -%}<td><b>Total</b></td>
+{%- elif kind in ("number", "money") and video.summaries[0][key] is not none -%}
+<td align="right" nowrap><b>{{ fmt(video.summaries[0][key], kind) }}</b></td>
+{%- else -%}<td></td>
+{%- endif -%}
+{%- endfor -%}
+</tr>
+</table>
+{% endif %}
+
 {# ---- 5. Puzzles ---- #}
 <h2 style="{{ h2 }}">Puzzles website</h2>
 <p style="{{ note }}">Whole calendar month.</p>
@@ -135,6 +172,11 @@
 <h2 style="{{ h2 }}">Top {{ puzzle_pages|length }} puzzle pages</h2>
 <p style="{{ note }}">Whole calendar month.</p>
 {{ pages_table(puzzle_pages, puzzles_site_url) }}
+
+{# ---- Video failure notice ---- #}
+{% if video.error %}
+<p style="{{ font }} color: {{ down }}; font-size: 14px; margin: 32px 0 0; padding: 10px 12px; border-left: 4px solid {{ down }}; background: {{ stripe }};"><b>Videos could not be analysed:</b> {{ video.error }}.</p>
+{% endif %}
 
 {# ---- Footer ---- #}
 <p style="{{ note }} margin-top: 32px; padding-top: 8px; border-top: 1px solid #d6d6da;">Figures from Matomo and the GroundUp republication counter. Changes are against the previous month and the same month a year earlier.</p>

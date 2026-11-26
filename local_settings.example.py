@@ -26,3 +26,12 @@ GROUNDUP_API_URL = "https://groundup.org.za/api"
 COUNTER_URL = "https://counter.groundup.org.za"
 COUNTER_USERNAME = "replace-me"
 COUNTER_PASSWORD = "replace-me"
+
+# --- Video views (Google Sheets) ------------------------------------------------
+# One sheet per year, each shared as "Anyone with the link can view". Paste
+# the link from the browser's address bar while viewing the right tab (it
+# includes the tab's "gid"). Keep earlier years so comparisons with the
+# previous month and year still work in January.
+VIDEO_SHEETS = {
+    2026: "https://docs.google.com/spreadsheets/d/replace-me/edit?gid=0",
+}

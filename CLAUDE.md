@@ -61,6 +61,7 @@ arguments so they can be understood and tested on their own.
   warning on stderr only if `warn_others=True` (`--warnothers`). Used by
   section 2 (`range`, prefix `/article/`) and section 5 (`month`, no prefix).
 - `counter.py`: `republication_hits(...)`, see section 3.
+- `videos.py`: `fetch_sheet`, `month_videos`, `videos_summary`, see section 4.
 - `requirements.txt`: `requests`, `jinja2`.
 
 ## Report sections (plan)
@@ -120,11 +121,36 @@ arguments so they can be understood and tested on their own.
    - Same counting window as section 2. Join to the article list by pk.
    - **Status: done, verified against the real counter.**
 
-4. **Videos**: table of all videos with views per platform and total, read from
-   an Excel spreadsheet that is maintained by hand. **Undecided:** how the cron
-   job finds the file (a fixed path, the newest file in a folder, or a shared
-   sheet/URL) and what layout the sheet has. Discuss with the owner before
-   building. Likely uses `openpyxl`.
+4. **Videos**, from a hand-maintained Google Sheet (`videos.py`,
+   `report.video_section`). Placed after republication.
+   - **One sheet per year**, links in setting `VIDEO_SHEETS = {year: link}`
+     (the browser link incl. `gid=` of the tab). Sheets must be shared
+     "Anyone with the link can view"; downloaded as CSV from
+     `/spreadsheets/d/<id>/export?format=csv&gid=<tab>` (a private sheet gives
+     a 401 / login page -> `VideoSheetError`).
+   - **Deterministic parse, no LLM** (considered and rejected: risk of wrong
+     numbers). Rules: a month's block starts at the row whose first cell is
+     the month name; the header row is the first of the next three rows
+     naming 3+ platforms; columns are found **by header name via
+     `HEADER_NAMES` synonyms, never by position** (July 2026 added a column
+     and swapped FB/IG); labels on the month row count too ("Video Type" moved
+     there); date/title default to columns A/B (unlabelled before July);
+     video rows run until a row lacks date or title. "N/A", "-", blank ->
+     None. Money: `R199,27` decimal comma, `R1,100` thousands.
+   - **Totals are computed, never read from the sheet**: the sheet's own
+     totals were wrong in Apr 2026 (cell typed "10, 526", skipped by SUM) and
+     Oct 2026 (total row omits the first two videos).
+   - Section: summary table (videos, views per platform, total, boost spend)
+     vs previous month and year earlier, then one row per video with a total
+     row. Rows/columns empty in all shown months are left out ("where
+     available"). Comparison months without a sheet/block show n/a.
+   - If this month can't be analysed (no sheet for the year, no month
+     block, unrecognised header, download failure, or **any** unforeseen
+     exception: the sheet is hand-edited) the Videos section is left out and
+     a red notice at the **bottom** of the report ("Videos could not be
+     analysed: <reason>") says why; a warning goes to stderr; the rest of the
+     report still goes out (owner's request).
+   - **Status: written; tested against the real 2026 sheet with fake Matomo.**
 
 5. **Puzzles** (puzzles.groundup.org.za, its own Matomo site ID): visits and
    page views, plus the top 30 puzzle pages (`Actions.getPageUrls`, `flat=1`).
@@ -149,7 +175,8 @@ arguments so they can be understood and tested on their own.
      (`cellpadding` on tables, `align`/`nowrap` on cells, `bgcolor` on rows
      for header and striping); font/colour set once per table plus a small
      `<style>` in `<head>` for Outlook. Jinja `trim_blocks`/`lstrip_blocks`
-     strip whitespace. A fake report with 113 article rows is ~70 KB.
+     strip whitespace. A fake report with 113 article rows was ~70 KB;
+     with Q&As and videos ~84 KB. Watch the margin when adding sections.
    - Colours from groundup.org.za's CSS: dark `#151f22` (header), cyan
      `#00b1f0` (accent), links `#0250bb`, beige `#ebebe0` (table headers);
      ▲ green `#1f8a5b`, ▼ red `#c0392b`.
@@ -177,7 +204,7 @@ machine-specific.
 
 1. Owner runs the HTML report (incl. Q&As) on real data and checks it in a browser
    (and ideally in Gmail/Outlook).
-2. Then videos, email, cron.
+2. Then email and cron.
 3. Open question from section 2: article avg time on page is very low
    (0:10-0:30), probably because Matomo can't time single-page visits without
    the heartbeat timer. Decide whether to enable it or drop the column.

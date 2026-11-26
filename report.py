@@ -6,9 +6,10 @@ Usage:
     python report.py 202501 --output x.html  # writes x.html
     python report.py 202501 --warnothers     # also warn about Matomo "Others" rows
 
-Fetches the figures (Matomo, the GroundUp API, the republication counter)
-and renders them into an email-safe HTML page with templates/report.html.
-Videos and emailing are still to come.
+Fetches the figures (Matomo, the GroundUp API, the republication counter,
+the video Google Sheet) and renders them into an email-safe HTML page with
+templates/report.html.
+Emailing is still to come.
 """
 
 import argparse
@@ -23,6 +24,7 @@ from counter import republication_hits
 from groundup import articles_published
 from matomo import Matomo, pageviews_by_path, site_summary
 from periods import Month
+from videos import VideoSheetError, fetch_sheet, month_videos, videos_summary
 
 try:
     import local_settings as settings
@@ -70,6 +72,36 @@ TOP_QANDA_PAGES = 20
 # A single Q&A's path, e.g. "/qanda/1325/". This leaves out the Q&A index
 # page "/qanda/" (and its "?topic=..." versions, which Matomo combines into it).
 QANDA_PATH = re.compile(r"/qanda/\d+/?")
+
+# The video section's summary table, as for SUMMARY_ROWS. Rows with no
+# figure in any of the three months are left out.
+VIDEO_SUMMARY_ROWS = [
+    ("videos", "Videos", "number"),
+    ("fb", "Facebook views", "number"),
+    ("ig", "Instagram views", "number"),
+    ("tiktok", "TikTok views", "number"),
+    ("yt", "YouTube views", "number"),
+    ("total", "Total views", "number"),
+    ("fb_boost", "Facebook boost", "money"),
+    ("ig_boost", "Instagram boost", "money"),
+    ("spent", "Total spent", "money"),
+]
+
+# The video table's columns: (key in videos.month_videos' dicts, heading,
+# format). Columns with nothing in them that month are left out.
+VIDEO_COLUMNS = [
+    ("date", "Date", "date"),
+    ("title", "Video", "text"),
+    ("type", "Type", "text"),
+    ("fb", "Facebook", "number"),
+    ("ig", "Instagram", "number"),
+    ("tiktok", "TikTok", "number"),
+    ("yt", "YouTube", "number"),
+    ("total", "Total", "number"),
+    ("fb_boost", "FB boost", "money"),
+    ("ig_boost", "IG boost", "money"),
+    ("spent", "Spent", "money"),
+]
 
 # Pages are linked to these sites (Matomo gives us only their paths).
 GROUNDUP_SITE_URL = "https://groundup.org.za"
@@ -129,6 +161,15 @@ def duration(seconds):
     return f"{minutes}:{seconds:02d}"
 
 
+def money(rands):
+    """1100 -> 'R1,100'; 199.27 -> 'R199.27'."""
+    if rands is None:
+        return "n/a"
+    if rands == int(rands):
+        return f"R{int(rands):,}"
+    return f"R{rands:,.2f}"
+
+
 def pct_change(current, previous):
     """Percentage change from previous to current, e.g. 12.3, or None if it
     can't be computed. The template decides how to show it (colour, arrow)."""
@@ -186,6 +227,64 @@ def top_pages(pageviews, how_many):
     return pages[:how_many]
 
 
+def video_section(month, months):
+    """Everything the template needs for the video section, as a dict.
+
+    Reads the video sheet(s) listed in settings.VIDEO_SHEETS (one per year).
+    If this month's videos can't be analysed, returns {"error": reason}: the
+    report then leaves the section out and says why at the bottom, and the
+    rest still goes out. A missing comparison month (previous month, year
+    earlier) just shows as n/a.
+
+    Any error is caught, not only VideoSheetError: the sheet is edited by
+    hand, so an unforeseen change mustn't stop the whole report.
+    """
+    sheets = getattr(settings, "VIDEO_SHEETS", {})
+    downloaded = {}  # year -> rows, so each sheet is fetched only once
+
+    def videos_for(m):
+        if m.year not in sheets:
+            raise VideoSheetError(f"no sheet for {m.year} in VIDEO_SHEETS")
+        if m.year not in downloaded:
+            downloaded[m.year] = fetch_sheet(sheets[m.year])
+        return month_videos(downloaded[m.year], m)
+
+    try:
+        videos = videos_for(month)
+    except VideoSheetError as e:
+        print(f"Warning: video section left out: {e}", file=sys.stderr)
+        return {"error": str(e)}
+    except Exception as e:  # something videos.py didn't foresee
+        reason = f"unexpected error ({type(e).__name__}: {e})"
+        print(f"Warning: video section left out: {reason}", file=sys.stderr)
+        return {"error": reason}
+
+    summaries = [videos_summary(videos)]
+    for m in months[1:]:
+        try:
+            summaries.append(videos_summary(videos_for(m)))
+        except Exception:  # VideoSheetError or anything unforeseen
+            # Same keys, all None, so every figure shows as n/a.
+            summaries.append(dict.fromkeys(summaries[0]))
+
+    def has_figure(value):
+        return value not in (None, "")
+
+    columns = [col for col in VIDEO_COLUMNS
+               if any(has_figure(v[col[0]]) for v in videos)]
+    return {
+        "videos": videos,
+        # Only rows and columns that have something in them.
+        "summary_rows": [row for row in VIDEO_SUMMARY_ROWS
+                         if any(has_figure(s[row[0]]) for s in summaries)],
+        "summaries": summaries,
+        "columns": columns,
+        # (heading, alignment) pairs for the template's table_start.
+        "headers": [(heading, "right" if kind in ("number", "money") else "left")
+                    for key, heading, kind in columns],
+    }
+
+
 # --- Rendering -------------------------------------------------------------------
 
 def render_report(context):
@@ -200,6 +299,7 @@ def render_report(context):
     )
     env.filters["number"] = number
     env.filters["duration"] = duration
+    env.filters["money"] = money
     env.filters["pct_change"] = pct_change
     return env.get_template("report.html").render(context)
 
@@ -265,6 +365,9 @@ def main(argv=None):
         today,
     )
 
+    # --- 4. Videos (from the hand-maintained Google Sheet) -------------------
+    video = video_section(month, months)
+
     # --- 5. Puzzles site -------------------------------------------------------
     # Its own Matomo site. Calendar month only (no "up to today" window):
     # puzzles aren't tied to a publication date in our data.
@@ -294,6 +397,7 @@ def main(argv=None):
         "republished": republished_articles(articles, hits),
         "republished_min_hits": REPUBLISHED_MIN_HITS,
         "top_site_min_hits": TOP_SITE_MIN_HITS,
+        "video": video,
         "puzzle_summaries": puzzle_summaries,
         "puzzle_summary_rows": PUZZLE_SUMMARY_ROWS,
         "puzzle_pages": top_pages(puzzle_pageviews, TOP_PUZZLE_PAGES),
