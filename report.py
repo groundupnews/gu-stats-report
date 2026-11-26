@@ -2,10 +2,11 @@
 """GroundUp monthly stats report.
 
 Usage:
-    python report.py 202501      # report on January 2025
+    python report.py 202501                # report on January 2025
+    python report.py 202501 --warnothers   # also warn about Matomo "Others" rows
 
-For now this prints the Matomo headline figures, popular articles and
-republication counts as plain text. Later steps add videos, puzzles and HTML.
+For now this prints, as plain text, the Matomo headline figures, popular
+articles, republication counts and puzzles. Later steps add videos and HTML.
 """
 
 import argparse
@@ -14,7 +15,7 @@ import sys
 
 from counter import republication_hits
 from groundup import articles_published
-from matomo import Matomo, article_pageviews, site_summary
+from matomo import Matomo, pageviews_by_path, site_summary
 from periods import Month
 
 try:
@@ -36,6 +37,15 @@ SUMMARY_ROWS = [
     ("home_avg_time", "Avg time on home page", "duration"),
 ]
 
+# The puzzles site has no home page rows, but does show visit duration.
+PUZZLE_SUMMARY_ROWS = [
+    ("visits", "Visits", "number"),
+    ("unique_visitors", "Unique visitors", "number"),
+    ("pageviews", "Page views", "number"),
+    ("unique_pageviews", "Unique page views", "number"),
+    ("avg_visit_time", "Avg visit duration", "duration"),
+]
+
 # Only articles with more page views than this are listed.
 ARTICLE_MIN_PAGEVIEWS = 1000
 
@@ -44,6 +54,9 @@ REPUBLISHED_MIN_HITS = 1000
 
 # In the "Top sites" column, only sites with more hits than this are listed.
 TOP_SITE_MIN_HITS = 500
+
+# How many of the puzzles site's most viewed pages to list.
+TOP_PUZZLE_PAGES = 30
 
 
 def month_arg(text):
@@ -61,6 +74,12 @@ def parse_args(argv=None):
     parser = argparse.ArgumentParser(description="GroundUp monthly stats report")
     parser.add_argument(
         "month", type=month_arg, help="year and month to report on, as YYYYMM"
+    )
+    parser.add_argument(
+        "--warnothers",
+        action="store_true",  # False unless the flag is given
+        help='warn about Matomo rows with no URL (e.g. "Others"), which mean '
+             "some page views are undercounted",
     )
     return parser.parse_args(argv)
 
@@ -94,13 +113,16 @@ def print_table(title, headers, rows):
         print("  ".join(cells))
 
 
-def print_summary(title, months, summaries):
-    """Print a table: this month, previous month, change, year earlier, change."""
+def print_summary(title, months, summaries, summary_rows=SUMMARY_ROWS):
+    """Print a table: this month, previous month, change, year earlier, change.
+
+    `summary_rows` says which figures to show, in the form of SUMMARY_ROWS.
+    """
     this, prev, last_year = summaries
     headers = ["", str(months[0]), str(months[1]), "Change",
                str(months[2]), "Change"]
     rows = []
-    for key, label, kind in SUMMARY_ROWS:
+    for key, label, kind in summary_rows:
         if key not in this:
             continue  # e.g. home page rows for a site with no home page URL
         rows.append([
@@ -119,7 +141,7 @@ def popular_articles(articles, pageviews):
     """Join the article list to Matomo's figures and keep the popular ones.
 
     `articles` comes from groundup.articles_published(); `pageviews` from
-    matomo.article_pageviews(). Returns copies of the article dicts with the
+    matomo.pageviews_by_path(). Returns copies of the article dicts with the
     Matomo figures added, most viewed first. An article Matomo has no row
     for has had no views, so it is left out.
     """
@@ -191,6 +213,27 @@ def print_republished(title, articles):
           f"{REPUBLISHED_MIN_HITS:,} republication hits)")
 
 
+def print_top_pages(title, pageviews):
+    """Print the most viewed pages: path, views, unique views, avg time.
+
+    `pageviews` comes from matomo.pageviews_by_path(). Shows the
+    TOP_PUZZLE_PAGES pages with the most views.
+    """
+    # pageviews.items() gives (path, figures) pairs; sort by figures' views.
+    top = sorted(pageviews.items(), key=lambda p: p[1]["pageviews"], reverse=True)
+    headers = ["Page", "Views", "Unique views", "Avg time"]
+    rows = [
+        [
+            path,
+            fmt_value(f["pageviews"], "number"),
+            fmt_value(f["unique_pageviews"], "number"),
+            fmt_value(f["avg_time"], "duration"),
+        ]
+        for path, f in top[:TOP_PUZZLE_PAGES]
+    ]
+    print_table(title, headers, rows)
+
+
 def main(argv=None):
     args = parse_args(argv)
     month = args.month
@@ -214,8 +257,13 @@ def main(argv=None):
     # publication, since an article has no views before it's published.
     today = datetime.date.today()
     articles = articles_published(settings.GROUNDUP_API_URL, month)
-    pageviews = article_pageviews(
-        matomo, settings.MATOMO_SITE_ID_GROUNDUP, month.first_day, today
+    pageviews = pageviews_by_path(
+        matomo,
+        settings.MATOMO_SITE_ID_GROUNDUP,
+        period="range",
+        date=f"{month.first_day.isoformat()},{today.isoformat()}",
+        path_prefix="/article/",
+        warn_others=args.warnothers,
     )
     window = f"{month.first_day:%d %b %Y} to {today:%d %b %Y}"
     print_articles(
@@ -237,6 +285,24 @@ def main(argv=None):
         f"Republication of articles published in {month}: hits {window}",
         republished_articles(articles, hits),
     )
+
+    # --- Puzzles site --------------------------------------------------------
+    # Its own Matomo site. Calendar month only (no "up to today" window):
+    # puzzles aren't tied to a publication date in our data.
+    puzzle_summaries = [
+        site_summary(matomo, settings.MATOMO_SITE_ID_PUZZLES, m) for m in months
+    ]
+    print_summary(f"Puzzles website: {month}", months, puzzle_summaries,
+                  PUZZLE_SUMMARY_ROWS)
+
+    puzzle_pages = pageviews_by_path(
+        matomo,
+        settings.MATOMO_SITE_ID_PUZZLES,
+        period="month",
+        date=month.matomo_date,
+        warn_others=args.warnothers,
+    )
+    print_top_pages(f"Top {TOP_PUZZLE_PAGES} puzzle pages: {month}", puzzle_pages)
 
 
 if __name__ == "__main__":

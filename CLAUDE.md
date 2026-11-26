@@ -19,6 +19,8 @@ python report.py 202501      # report on January 2025
 The virtualenv is `env/` (not `.venv/`), e.g. `env/bin/python report.py 202501`.
 
 - The single positional argument is compulsory: year and month as `YYYYMM`.
+- `--warnothers`: print warnings (stderr) for Matomo rows with no URL, e.g.
+  "Others". Off by default because the owner has accepted the undercount.
 - The month must have finished; malformed or unfinished months are rejected.
 - Each figure is compared with the previous month and the same month a year
   earlier. Year-earlier comparisons are nice-to-have: show "n/a" if Matomo
@@ -49,10 +51,13 @@ arguments so they can be understood and tested on their own.
   `<GROUNDUP_API_URL>/articles/<year>/<month>/` (fields: pk, url, published;
   no title, so the report shows the slug, linked to the article). Months and
   times are UTC. Adds `path` (used to match Matomo rows) and `slug`.
-- `matomo.py` also has `article_pageviews(matomo, site_id, start, end)`: one
-  `Actions.getPageUrls` call (`period=range`, `flat=1`, `filter_limit=-1`),
-  keyed by path with query strings stripped and combined; avg time weighted
-  by page views. Warns on stderr about rows with no URL (e.g. "Others").
+- `matomo.py` also has `pageviews_by_path(matomo, site_id, period, date,
+  path_prefix=None)`: one `Actions.getPageUrls` call (`flat=1`,
+  `filter_limit=-1`), keyed by path with query strings stripped and combined;
+  avg time weighted by page views. Skips rows with no URL (e.g. "Others"),
+  warning on stderr only if `warn_others=True` (`--warnothers`). Used by
+  section 2 (`range`, prefix `/article/`) and section 5 (`month`, no prefix).
+- `counter.py`: `republication_hits(...)`, see section 3.
 - `requirements.txt`: `requests`, `jinja2`.
 
 ## Report sections (plan)
@@ -109,6 +114,16 @@ arguments so they can be understood and tested on their own.
 5. **Puzzles** (puzzles.groundup.org.za, its own Matomo site ID): visits and
    page views, plus the top 30 puzzle pages (`Actions.getPageUrls`, `flat=1`).
    `site_summary()` can be reused without a home page URL.
+   - Summary: `site_summary()` + `print_summary(..., PUZZLE_SUMMARY_ROWS)`
+     (visits, unique visitors, page views, unique page views, avg visit
+     duration from `VisitsSummary.get` `avg_time_on_site`; with comparisons).
+     Matomo has no site-wide avg time *on page*, so visit duration is used.
+     The GroundUp summary (`SUMMARY_ROWS`) doesn't show visit duration.
+   - Top pages (`print_top_pages`, `TOP_PUZZLE_PAGES`): path, views, unique
+     views, avg time. Calendar month, not "up to today". Includes the home
+     page and the six index pages (crossword, streetwise, groupup, quizzes,
+     sudoku, target), as the owner wants.
+   - **Status: written, tested with fake Matomo only.**
 
 6. **HTML output**: Jinja2 template (agreed). Must be email-safe: inline CSS,
    simple tables, no JavaScript, no external stylesheets. Changes shown as
@@ -131,8 +146,8 @@ machine-specific.
 
 ## Next steps
 
-1. Owner runs section 3 against the real counter.
-2. Then puzzles, HTML template, videos, email, cron.
+1. Owner runs sections 3 and 5 against the real counter and Matomo.
+2. Then HTML template, videos, email, cron.
 3. Open question from section 2: article avg time on page is very low
    (0:10-0:30), probably because Matomo can't time single-page visits without
    the heartbeat timer. Decide whether to enable it or drop the column.

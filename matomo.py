@@ -66,6 +66,7 @@ def site_summary(matomo, site_id, month, home_page_url=None):
         "unique_visitors": visits.get("nb_uniq_visitors"),
         "pageviews": actions.get("nb_pageviews"),
         "unique_pageviews": actions.get("nb_uniq_pageviews"),
+        "avg_visit_time": visits.get("avg_time_on_site"),  # seconds
     }
 
     if home_page_url:
@@ -78,44 +79,56 @@ def site_summary(matomo, site_id, month, home_page_url=None):
     return summary
 
 
-def article_pageviews(matomo, site_id, start, end):
-    """Page views of every article page between two dates (inclusive).
+def pageviews_by_path(matomo, site_id, period, date, path_prefix=None,
+                      warn_others=False):
+    """Page views of every page on a site, for one period.
 
-    `start` and `end` are datetime.date objects. Makes one API call and
-    returns a dict keyed by path, e.g.
+    `period` and `date` are passed straight to Matomo, e.g.
+        period="month", date="2026-10-01"             (a calendar month)
+        period="range", date="2026-10-01,2026-11-26"  (two dates, inclusive)
+
+    If `path_prefix` is given (e.g. "/article/"), only pages whose path starts
+    with it are returned. Makes one API call and returns a dict keyed by path:
 
         {"/article/some-slug/": {"pageviews": 1234,
                                  "unique_pageviews": 1100,
                                  "avg_time": 95.0},   # seconds
          ...}
 
-    If Matomo has recorded the same article under several URLs that differ
+    If Matomo has recorded the same page under several URLs that differ
     only by query string (e.g. "?utm_source=facebook"), they are added
     together under the plain path.
+
+    Rows with no URL (e.g. Matomo's "Others" row) are skipped; if
+    `warn_others` is true, a warning is printed for each.
     """
-    rows = matomo.call(
-        "Actions.getPageUrls",
-        idSite=site_id,
-        period="range",
-        date=f"{start.isoformat()},{end.isoformat()}",
-        flat=1,                   # one row per page, not nested by folder
-        filter_limit=-1,          # all rows, not just the top 100
-        filter_pattern="article", # only pages with "article" in the label
-    )
+    params = {
+        "idSite": site_id,
+        "period": period,
+        "date": date,
+        "flat": 1,           # one row per page, not nested by folder
+        "filter_limit": -1,  # all rows, not just the top 100
+    }
+    if path_prefix:
+        # Let Matomo do a rough filter first, e.g. "article" for "/article/",
+        # so it doesn't send every page on the site. We check exactly below.
+        params["filter_pattern"] = path_prefix.strip("/")
+    rows = matomo.call("Actions.getPageUrls", **params)
 
     totals = {}
     for row in rows:
         # Each page row has the full URL it was recorded with. Rows without
         # one (e.g. Matomo's "Others" summary row) can't be matched; skip them.
-        # But warn: an "Others" row means Matomo truncated its archives and
-        # some articles' views are being undercounted.
+        # An "Others" row means Matomo truncated its archives and some pages'
+        # views are undercounted; warn about it only if asked to.
         if "url" not in row:
-            print(f"Warning: Matomo row {row.get('label')!r} with "
-                  f"{row.get('nb_hits')} page views has no URL; skipped.",
-                  file=sys.stderr)
+            if warn_others:
+                print(f"Warning: Matomo row {row.get('label')!r} with "
+                      f"{row.get('nb_hits')} page views has no URL; skipped.",
+                      file=sys.stderr)
             continue
         path = urlsplit(row["url"]).path  # drops domain and query string
-        if not path.startswith("/article/"):
+        if path_prefix and not path.startswith(path_prefix):
             continue
 
         pageviews = row.get("nb_hits", 0)
