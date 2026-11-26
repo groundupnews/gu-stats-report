@@ -20,3 +20,9 @@ MATOMO_HOME_PAGE_URL = "https://groundup.org.za/"
 # Base URL of the GroundUp API (no trailing slash). Used to list the articles
 # published in a month: <GROUNDUP_API_URL>/articles/<year>/<month>/
 GROUNDUP_API_URL = "https://groundup.org.za/api"
+
+# --- Counter app (republication counts) --------------------------------------
+# Base URL of the counter app, and the nginx basic auth user for its stats.
+COUNTER_URL = "https://counter.groundup.org.za"
+COUNTER_USERNAME = "replace-me"
+COUNTER_PASSWORD = "replace-me"

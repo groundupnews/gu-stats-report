@@ -75,22 +75,27 @@ arguments so they can be understood and tested on their own.
    - **Counting window:** views from publication up to the day the report is
      run (the 15th of the following month). That's why the cron runs on the
      15th.
-   - **Status: written** (`report.py` `popular_articles`, `print_articles`;
-     threshold `ARTICLE_MIN_PAGEVIEWS`). Range is 1st of month to today:
-     starting on the 1st equals starting at publication. Tested with the real
-     GroundUp API and fake Matomo only. On the first real run check for a
-     Matomo "Others" warning: it means archives are truncated
-     (`datatable_archiving_maximum_rows_subtable_actions`) and views are
-     undercounted.
+   - **Status: done, verified against the real Matomo (Oct 2026)**
+     (`report.py` `popular_articles`, `print_articles`; threshold
+     `ARTICLE_MIN_PAGEVIEWS`). Range is 1st of month to today: starting on
+     the 1st equals starting at publication. Matomo's archives are truncated
+     ("Others" warnings, ~265k article views in Oct 2026), so figures are
+     minimums, softest near the threshold. Owner has accepted this.
 
 3. **Republication counts** from https://counter.groundup.org.za/stats/ for
-   articles published in the month with more than 1,000 hits.
-   - The counter is a Django app the owner controls (originally written with
-     Claude). Articles are identified by **pk**
-     (`https://groundup.org.za/newsbypk/<pk>/`).
-   - Decision: add a **JSON endpoint** to the counter app (protected by a key
-     in settings) rather than reading its database directly.
+   articles published in the month with more than 1,000 **republication**
+   hits (`REPUBLISHED_MIN_HITS`). An independent report and a separate table
+   (article, published, sites, hits): it does not depend on Matomo views.
+   - The counter is a Flask app the owner controls (repo
+     `groundupnews/counter`, originally written with Claude). Articles are
+     identified by **pk** (`https://groundup.org.za/newsbypk/<pk>/`).
+   - Decision: no counter changes. `counter.py` here uses the counter's
+     existing **CSV export** (`/stats/YYYYMMDD/YYYYMMDD?format=csv&exclude=…`)
+     behind nginx basic auth (`COUNTER_USERNAME`/`COUNTER_PASSWORD`).
+     GroundUp's own domains are excluded, as in the counter's form. Hits
+     summed per pk; "sites" = distinct referrers.
    - Same counting window as section 2. Join to the article list by pk.
+   - **Status: written, tested with fake CSV only.**
 
 4. **Videos**: table of all videos with views per platform and total, read from
    an Excel spreadsheet that is maintained by hand. **Undecided:** how the cron
@@ -123,8 +128,8 @@ machine-specific.
 
 ## Next steps
 
-1. Owner runs `python report.py <YYYYMM>` against the real Matomo; adjust
-   section 1 based on the output.
-2. Run section 2 against the real Matomo (see its checks above).
-3. Then counter endpoint and section 3, puzzles, HTML template, videos, email,
-   cron.
+1. Owner runs section 3 against the real counter.
+2. Then puzzles, HTML template, videos, email, cron.
+3. Open question from section 2: article avg time on page is very low
+   (0:10-0:30), probably because Matomo can't time single-page visits without
+   the heartbeat timer. Decide whether to enable it or drop the column.

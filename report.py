@@ -4,14 +4,15 @@
 Usage:
     python report.py 202501      # report on January 2025
 
-For now this prints the Matomo headline figures as plain text. Later steps
-add the article tables, republication counts, videos, puzzles and HTML.
+For now this prints the Matomo headline figures, popular articles and
+republication counts as plain text. Later steps add videos, puzzles and HTML.
 """
 
 import argparse
 import datetime
 import sys
 
+from counter import republication_hits
 from groundup import articles_published
 from matomo import Matomo, article_pageviews, site_summary
 from periods import Month
@@ -37,6 +38,9 @@ SUMMARY_ROWS = [
 
 # Only articles with more page views than this are listed.
 ARTICLE_MIN_PAGEVIEWS = 1000
+
+# Only articles with more republication hits than this are listed.
+REPUBLISHED_MIN_HITS = 1000
 
 
 def month_arg(text):
@@ -144,6 +148,40 @@ def print_articles(title, articles):
           f"{ARTICLE_MIN_PAGEVIEWS:,} views)")
 
 
+def republished_articles(articles, hits):
+    """Join the article list to the counter's figures and keep the popular ones.
+
+    `articles` comes from groundup.articles_published(); `hits` from
+    counter.republication_hits(), keyed by pk. Returns copies of the article
+    dicts with "hits" and "sites" added, most hits first.
+    """
+    republished = []
+    for article in articles:
+        figures = hits.get(article["pk"])
+        if figures and figures["hits"] > REPUBLISHED_MIN_HITS:
+            republished.append({**article, **figures})
+    republished.sort(key=lambda a: a["hits"], reverse=True)
+    return republished
+
+
+def print_republished(title, articles):
+    """Print a table of articles: slug, published, sites, republication hits."""
+    headers = ["Article", "Published", "Sites", "Hits"]
+    rows = [
+        [
+            a["slug"],
+            a["published"].strftime("%d %b"),
+            fmt_value(a["sites"], "number"),
+            fmt_value(a["hits"], "number"),
+        ]
+        for a in articles
+    ]
+
+    print_table(title, headers, rows)
+    print(f"({len(articles)} articles with more than "
+          f"{REPUBLISHED_MIN_HITS:,} republication hits)")
+
+
 def main(argv=None):
     args = parse_args(argv)
     month = args.month
@@ -174,6 +212,21 @@ def main(argv=None):
     print_articles(
         f"Articles published in {month}: views {window}",
         popular_articles(articles, pageviews),
+    )
+
+    # --- Republication of articles published in the month -------------------
+    # Same counting window and article list as above, but a separate report:
+    # an article can be widely republished without many views on GroundUp.
+    hits = republication_hits(
+        settings.COUNTER_URL,
+        settings.COUNTER_USERNAME,
+        settings.COUNTER_PASSWORD,
+        month.first_day,
+        today,
+    )
+    print_republished(
+        f"Republication of articles published in {month}: hits {window}",
+        republished_articles(articles, hits),
     )
 
 
