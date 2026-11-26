@@ -7,6 +7,9 @@ site and period with `idSite`, `period` and `date`. Matomo answers with JSON.
 Docs: https://developer.matomo.org/api-reference/reporting-api
 """
 
+import sys
+from urllib.parse import urlsplit
+
 import requests
 
 
@@ -73,3 +76,59 @@ def site_summary(matomo, site_id, month, home_page_url=None):
         summary["home_avg_time"] = row.get("avg_time_on_page")  # seconds
 
     return summary
+
+
+def article_pageviews(matomo, site_id, start, end):
+    """Page views of every article page between two dates (inclusive).
+
+    `start` and `end` are datetime.date objects. Makes one API call and
+    returns a dict keyed by path, e.g.
+
+        {"/article/some-slug/": {"pageviews": 1234,
+                                 "unique_pageviews": 1100,
+                                 "avg_time": 95.0},   # seconds
+         ...}
+
+    If Matomo has recorded the same article under several URLs that differ
+    only by query string (e.g. "?utm_source=facebook"), they are added
+    together under the plain path.
+    """
+    rows = matomo.call(
+        "Actions.getPageUrls",
+        idSite=site_id,
+        period="range",
+        date=f"{start.isoformat()},{end.isoformat()}",
+        flat=1,                   # one row per page, not nested by folder
+        filter_limit=-1,          # all rows, not just the top 100
+        filter_pattern="article", # only pages with "article" in the label
+    )
+
+    totals = {}
+    for row in rows:
+        # Each page row has the full URL it was recorded with. Rows without
+        # one (e.g. Matomo's "Others" summary row) can't be matched; skip them.
+        # But warn: an "Others" row means Matomo truncated its archives and
+        # some articles' views are being undercounted.
+        if "url" not in row:
+            print(f"Warning: Matomo row {row.get('label')!r} with "
+                  f"{row.get('nb_hits')} page views has no URL; skipped.",
+                  file=sys.stderr)
+            continue
+        path = urlsplit(row["url"]).path  # drops domain and query string
+        if not path.startswith("/article/"):
+            continue
+
+        pageviews = row.get("nb_hits", 0)
+        t = totals.setdefault(path, {"pageviews": 0, "unique_pageviews": 0,
+                                     "time_x_views": 0})
+        t["pageviews"] += pageviews
+        t["unique_pageviews"] += row.get("nb_visits", 0)
+        # To combine averages from several rows correctly, weight each by its
+        # page views: (avg1 * views1 + avg2 * views2) / (views1 + views2).
+        t["time_x_views"] += row.get("avg_time_on_page", 0) * pageviews
+
+    for t in totals.values():
+        time_x_views = t.pop("time_x_views")
+        t["avg_time"] = time_x_views / t["pageviews"] if t["pageviews"] else None
+
+    return totals

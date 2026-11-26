@@ -16,6 +16,8 @@ dependencies and abstractions, and explain what you changed and why.
 python report.py 202501      # report on January 2025
 ```
 
+The virtualenv is `env/` (not `.venv/`), e.g. `env/bin/python report.py 202501`.
+
 - The single positional argument is compulsory: year and month as `YYYYMM`.
 - The month must have finished; malformed or unfinished months are rejected.
 - Each figure is compared with the previous month and the same month a year
@@ -43,6 +45,14 @@ arguments so they can be understood and tested on their own.
   month. Token is sent in the POST body, not the URL. Matomo returns `[]`
   instead of `{}` when there's no data; `_as_dict` handles that. Missing values
   are `None` and render as "n/a".
+- `groundup.py`: `articles_published(api_url, month)` fetches
+  `<GROUNDUP_API_URL>/articles/<year>/<month>/` (fields: pk, url, published;
+  no title, so the report shows the slug, linked to the article). Months and
+  times are UTC. Adds `path` (used to match Matomo rows) and `slug`.
+- `matomo.py` also has `article_pageviews(matomo, site_id, start, end)`: one
+  `Actions.getPageUrls` call (`period=range`, `flat=1`, `filter_limit=-1`),
+  keyed by path with query strings stripped and combined; avg time weighted
+  by page views. Warns on stderr about rows with no URL (e.g. "Others").
 - `requirements.txt`: `requests`, `jinja2`.
 
 ## Report sections (plan)
@@ -50,12 +60,8 @@ arguments so they can be understood and tested on their own.
 1. **Matomo headline figures** for groundup.org.za: visits, unique visitors,
    page views, unique page views, home page views, avg time on home page.
    Uses `VisitsSummary.get`, `Actions.get`, `Actions.getPageUrl`.
-   **Status: written, tested only against fake data. Not yet run against the
-   real Matomo.** Things to verify on the first real run:
-   - `MATOMO_HOME_PAGE_URL` must match exactly how Matomo records the home
-     page (www vs non-www, trailing slash).
-   - That `Actions.getPageUrl` returns `avg_time_on_page`.
-   - Unique visitors for month periods may be disabled in Matomo config.
+   **Status: done, verified against the real Matomo (Oct 2026).** Home page
+   URL matches, avg time on page is returned, monthly unique visitors are on.
 
 2. **Articles published in the month** with more than 1,000 page views: a table
    of page views and avg time on page, via Matomo.
@@ -69,6 +75,13 @@ arguments so they can be understood and tested on their own.
    - **Counting window:** views from publication up to the day the report is
      run (the 15th of the following month). That's why the cron runs on the
      15th.
+   - **Status: written** (`report.py` `popular_articles`, `print_articles`;
+     threshold `ARTICLE_MIN_PAGEVIEWS`). Range is 1st of month to today:
+     starting on the 1st equals starting at publication. Tested with the real
+     GroundUp API and fake Matomo only. On the first real run check for a
+     Matomo "Others" warning: it means archives are truncated
+     (`datatable_archiving_maximum_rows_subtable_actions`) and views are
+     undercounted.
 
 3. **Republication counts** from https://counter.groundup.org.za/stats/ for
    articles published in the month with more than 1,000 hits.
@@ -112,7 +125,6 @@ machine-specific.
 
 1. Owner runs `python report.py <YYYYMM>` against the real Matomo; adjust
    section 1 based on the output.
-2. Owner writes the GroundUp "articles published in month" endpoint; then build
-   section 2.
+2. Run section 2 against the real Matomo (see its checks above).
 3. Then counter endpoint and section 3, puzzles, HTML template, videos, email,
    cron.

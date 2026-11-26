@@ -15,3 +15,8 @@ MATOMO_SITE_ID_PUZZLES = 2
 
 # The home page exactly as Matomo records it (check www vs non-www).
 MATOMO_HOME_PAGE_URL = "https://groundup.org.za/"
+
+# --- GroundUp website API ---------------------------------------------------
+# Base URL of the GroundUp API (no trailing slash). Used to list the articles
+# published in a month: <GROUNDUP_API_URL>/articles/<year>/<month>/
+GROUNDUP_API_URL = "https://groundup.org.za/api"

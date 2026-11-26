@@ -9,9 +9,11 @@ add the article tables, republication counts, videos, puzzles and HTML.
 """
 
 import argparse
+import datetime
 import sys
 
-from matomo import Matomo, site_summary
+from groundup import articles_published
+from matomo import Matomo, article_pageviews, site_summary
 from periods import Month
 
 try:
@@ -32,6 +34,9 @@ SUMMARY_ROWS = [
     ("home_pageviews", "Home page views", "number"),
     ("home_avg_time", "Avg time on home page", "duration"),
 ]
+
+# Only articles with more page views than this are listed.
+ARTICLE_MIN_PAGEVIEWS = 1000
 
 
 def month_arg(text):
@@ -72,6 +77,16 @@ def fmt_change(current, previous):
     return f"{change:+.1f}%"
 
 
+def print_table(title, headers, rows):
+    """Print a titled table: first column left-aligned, the rest right-aligned."""
+    widths = [max(len(r[i]) for r in [headers] + rows) for i in range(len(headers))]
+    print(f"\n{title}\n{'=' * len(title)}")
+    for row in [headers] + rows:
+        cells = [row[0].ljust(widths[0])]
+        cells += [cell.rjust(w) for cell, w in zip(row[1:], widths[1:])]
+        print("  ".join(cells))
+
+
 def print_summary(title, months, summaries):
     """Print a table: this month, previous month, change, year earlier, change."""
     this, prev, last_year = summaries
@@ -90,12 +105,43 @@ def print_summary(title, months, summaries):
             fmt_change(this[key], last_year[key]),
         ])
 
-    widths = [max(len(r[i]) for r in [headers] + rows) for i in range(len(headers))]
-    print(f"\n{title}\n{'=' * len(title)}")
-    for row in [headers] + rows:
-        cells = [row[0].ljust(widths[0])]
-        cells += [cell.rjust(w) for cell, w in zip(row[1:], widths[1:])]
-        print("  ".join(cells))
+    print_table(title, headers, rows)
+
+
+def popular_articles(articles, pageviews):
+    """Join the article list to Matomo's figures and keep the popular ones.
+
+    `articles` comes from groundup.articles_published(); `pageviews` from
+    matomo.article_pageviews(). Returns copies of the article dicts with the
+    Matomo figures added, most viewed first. An article Matomo has no row
+    for has had no views, so it is left out.
+    """
+    popular = []
+    for article in articles:
+        figures = pageviews.get(article["path"])
+        if figures and figures["pageviews"] > ARTICLE_MIN_PAGEVIEWS:
+            popular.append({**article, **figures})  # merge the two dicts
+    popular.sort(key=lambda a: a["pageviews"], reverse=True)
+    return popular
+
+
+def print_articles(title, articles):
+    """Print a table of articles: slug, published, views, unique, avg time."""
+    headers = ["Article", "Published", "Views", "Unique views", "Avg time"]
+    rows = [
+        [
+            a["slug"],
+            a["published"].strftime("%d %b"),  # e.g. "01 Oct"
+            fmt_value(a["pageviews"], "number"),
+            fmt_value(a["unique_pageviews"], "number"),
+            fmt_value(a["avg_time"], "duration"),
+        ]
+        for a in articles
+    ]
+
+    print_table(title, headers, rows)
+    print(f"({len(articles)} articles with more than "
+          f"{ARTICLE_MIN_PAGEVIEWS:,} views)")
 
 
 def main(argv=None):
@@ -114,6 +160,21 @@ def main(argv=None):
         for m in months
     ]
     print_summary(f"GroundUp website: {month}", months, summaries)
+
+    # --- Articles published in the month ----------------------------------
+    # Views are counted from the 1st of the month up to today (when the report
+    # is run). Starting on the 1st is the same as starting at each article's
+    # publication, since an article has no views before it's published.
+    today = datetime.date.today()
+    articles = articles_published(settings.GROUNDUP_API_URL, month)
+    pageviews = article_pageviews(
+        matomo, settings.MATOMO_SITE_ID_GROUNDUP, month.first_day, today
+    )
+    window = f"{month.first_day:%d %b %Y} to {today:%d %b %Y}"
+    print_articles(
+        f"Articles published in {month}: views {window}",
+        popular_articles(articles, pageviews),
+    )
 
 
 if __name__ == "__main__":
