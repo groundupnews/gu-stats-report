@@ -13,6 +13,7 @@ Videos and emailing are still to come.
 
 import argparse
 import datetime
+import re
 import sys
 from pathlib import Path
 
@@ -63,7 +64,15 @@ TOP_SITE_MIN_HITS = 500
 # How many of the puzzles site's most viewed pages to list.
 TOP_PUZZLE_PAGES = 30
 
-# Puzzle pages are linked to this site (Matomo gives us only their paths).
+# How many of the most viewed Q&As to list.
+TOP_QANDA_PAGES = 20
+
+# A single Q&A's path, e.g. "/qanda/1325/". This leaves out the Q&A index
+# page "/qanda/" (and its "?topic=..." versions, which Matomo combines into it).
+QANDA_PATH = re.compile(r"/qanda/\d+/?")
+
+# Pages are linked to these sites (Matomo gives us only their paths).
+GROUNDUP_SITE_URL = "https://groundup.org.za"
 PUZZLES_SITE_URL = "https://puzzles.groundup.org.za"
 
 # The HTML template lives in templates/ next to this file. Using this file's
@@ -166,15 +175,15 @@ def republished_articles(articles, hits):
     return republished
 
 
-def top_pages(pageviews):
-    """The TOP_PUZZLE_PAGES most viewed pages, most first.
+def top_pages(pageviews, how_many):
+    """The `how_many` most viewed pages, most first.
 
     `pageviews` comes from matomo.pageviews_by_path(), keyed by path. Returns
     a list of its figures dicts, each with "path" added.
     """
     pages = [{"path": path, **figures} for path, figures in pageviews.items()]
     pages.sort(key=lambda p: p["pageviews"], reverse=True)
-    return pages[:TOP_PUZZLE_PAGES]
+    return pages[:how_many]
 
 
 # --- Rendering -------------------------------------------------------------------
@@ -228,6 +237,23 @@ def main(argv=None):
         warn_others=args.warnothers,
     )
 
+    # --- 2b. Most viewed Q&As ---------------------------------------------------
+    # Q&As are read for years after publication, so this is the most viewed
+    # Q&As in the calendar month, whenever they were published.
+    qanda_pageviews = pageviews_by_path(
+        matomo,
+        settings.MATOMO_SITE_ID_GROUNDUP,
+        period="month",
+        date=month.matomo_date,
+        path_prefix="/qanda/",
+        warn_others=args.warnothers,
+    )
+    # Keep single Q&As only, not the index page.
+    qanda_pageviews = {
+        path: figures for path, figures in qanda_pageviews.items()
+        if QANDA_PATH.fullmatch(path)
+    }
+
     # --- 3. Republication of articles published in the month -----------------
     # Same counting window and article list as above, but a separate report:
     # an article can be widely republished without many views on GroundUp.
@@ -263,12 +289,14 @@ def main(argv=None):
         "summary_rows": SUMMARY_ROWS,
         "articles": popular_articles(articles, pageviews),
         "article_min_pageviews": ARTICLE_MIN_PAGEVIEWS,
+        "qanda_pages": top_pages(qanda_pageviews, TOP_QANDA_PAGES),
+        "groundup_site_url": GROUNDUP_SITE_URL,
         "republished": republished_articles(articles, hits),
         "republished_min_hits": REPUBLISHED_MIN_HITS,
         "top_site_min_hits": TOP_SITE_MIN_HITS,
         "puzzle_summaries": puzzle_summaries,
         "puzzle_summary_rows": PUZZLE_SUMMARY_ROWS,
-        "puzzle_pages": top_pages(puzzle_pageviews),
+        "puzzle_pages": top_pages(puzzle_pageviews, TOP_PUZZLE_PAGES),
         "puzzles_site_url": PUZZLES_SITE_URL,
     })
     Path(output).write_text(html, encoding="utf-8")

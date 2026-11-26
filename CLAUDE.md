@@ -90,6 +90,18 @@ arguments so they can be understood and tested on their own.
      ("Others" warnings, ~265k article views in Oct 2026), so figures are
      minimums, softest near the threshold. Owner has accepted this.
 
+2b. **Most viewed Q&As** (`/qanda/<number>/` on groundup.org.za), shown
+   under the articles table. Q&As are evergreen, so this is the top
+   `TOP_QANDA_PAGES` (20) Q&As by views in the **calendar month**, whenever
+   published; not "published in the month". Matomo only, one
+   `pageviews_by_path(..., path_prefix="/qanda/")` call; `QANDA_PATH` keeps
+   single Q&As and drops the `/qanda/` index (topic `?topic=` versions combine
+   into it), `/qanda/rss/` etc. No titles (URLs have none; the articles API
+   doesn't cover Q&As): shows the linked path. Owner may later add a titles
+   endpoint. Columns: views, unique views, avg time (template macro
+   `pages_table`, shared with puzzles).
+   - **Status: written, tested with fake Matomo only.**
+
 3. **Republication counts** from https://counter.groundup.org.za/stats/ for
    articles published in the month with more than 1,000 **republication**
    hits (`REPUBLISHED_MIN_HITS`). An independent report and a separate table
@@ -163,7 +175,7 @@ machine-specific.
 
 ## Next steps
 
-1. Owner runs the HTML report on real data and checks it in a browser
+1. Owner runs the HTML report (incl. Q&As) on real data and checks it in a browser
    (and ideally in Gmail/Outlook).
 2. Then videos, email, cron.
 3. Open question from section 2: article avg time on page is very low
