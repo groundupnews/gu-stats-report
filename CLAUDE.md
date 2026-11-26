@@ -103,7 +103,7 @@ arguments so they can be understood and tested on their own.
      GroundUp's own domains are excluded, as in the counter's form. Hits
      summed per pk; "sites" = distinct referrers.
    - Same counting window as section 2. Join to the article list by pk.
-   - **Status: written, tested with fake CSV only.**
+   - **Status: done, verified against the real counter.**
 
 4. **Videos**: table of all videos with views per platform and total, read from
    an Excel spreadsheet that is maintained by hand. **Undecided:** how the cron
@@ -123,7 +123,7 @@ arguments so they can be understood and tested on their own.
      views, avg time. Calendar month, not "up to today". Includes the home
      page and the six index pages (crossword, streetwise, groupup, quizzes,
      sudoku, target), as the owner wants.
-   - **Status: written, tested with fake Matomo only.**
+   - **Status: done, verified against the real Matomo.**
 
 6. **HTML output**: Jinja2 template (agreed). Must be email-safe: inline CSS,
    simple tables, no JavaScript, no external stylesheets. Changes shown as
@@ -146,8 +146,7 @@ machine-specific.
 
 ## Next steps
 
-1. Owner runs sections 3 and 5 against the real counter and Matomo.
-2. Then HTML template, videos, email, cron.
-3. Open question from section 2: article avg time on page is very low
+1. HTML template (section 6), then videos, email, cron.
+2. Open question from section 2: article avg time on page is very low
    (0:10-0:30), probably because Matomo can't time single-page visits without
    the heartbeat timer. Decide whether to enable it or drop the column.
