@@ -1,0 +1,136 @@
+{#-
+  GroundUp monthly stats report, sent as an HTML email.
+
+  Email clients (Outlook, Gmail) ignore much modern CSS, so the layout is
+  plain tables, with no JavaScript and nothing loaded from elsewhere.
+
+  Size matters too: Gmail cuts off emails over about 102 KB. So table cells
+  have no style="..." of their own. Instead we use old HTML attributes that
+  every mail client understands and that cost a few bytes each:
+    cellpadding="6"   on a table: padding in every cell
+    align="right"     on a cell: right-align (numbers)
+    nowrap            on a cell: don't wrap (numbers, dates)
+    bgcolor="..."     on a row: background colour (header, striping)
+  Font, size and colour are set once per table; the <style> block in <head>
+  repeats them for Outlook, which doesn't pass them down into tables.
+
+  Colours are GroundUp's, taken from the site's CSS.
+-#}
+{% set dark = "#151f22" %}{# site header #}
+{% set accent = "#00b1f0" %}{# GroundUp cyan #}
+{% set link = "#0250bb" %}
+{% set panel = "#ebebe0" %}{# beige: table headers #}
+{% set stripe = "#f6f6f1" %}{# lighter beige: every second row #}
+{% set muted = "#4d4d4d" %}
+{% set up = "#1f8a5b" %}
+{% set down = "#c0392b" %}
+{% set font = "font-family: Inter, 'Helvetica Neue', Arial, sans-serif;" %}
+
+{% set h2 = font ~ " color: " ~ dark ~ "; font-size: 18px; margin: 32px 0 4px; padding-bottom: 4px; border-bottom: 2px solid " ~ accent ~ ";" %}
+{% set note = font ~ " color: " ~ muted ~ "; font-size: 13px; margin: 4px 0 10px;" %}
+{% set table = font ~ " color: " ~ dark ~ "; font-size: 14px; border-collapse: collapse; width: 100%;" %}
+{% set a = "color: " ~ link ~ "; text-decoration: none;" %}
+
+{# Start a data table: <table> and its header row. `headers` is a list of
+   (label, align) pairs, e.g. [("Article", "left"), ("Views", "right")]. #}
+{% macro table_start(headers) %}
+<table role="presentation" cellpadding="6" cellspacing="0" style="{{ table }}">
+<tr bgcolor="{{ panel }}">{% for label, align in headers %}<th align="{{ align }}" style="font-size: 13px;">{{ label }}</th>{% endfor %}</tr>
+{% endmacro %}
+
+{# Every second row is lightly shaded, to help the eye along wide tables. #}
+{% macro row_start(loop) %}<tr{% if loop.even %} bgcolor="{{ stripe }}"{% endif %}>{% endmacro %}
+
+{# A figure formatted according to its kind: "number" or "duration". #}
+{% macro fmt(value, kind) %}{% if kind == "duration" %}{{ value|duration }}{% else %}{{ value|number }}{% endif %}{% endmacro %}
+
+{# A percentage change: green ▲ if up, red ▼ if down, grey if none/unknown. #}
+{% macro change(current, previous) %}
+{% set pct = current|pct_change(previous) %}
+{% if pct is none %}<span style="color: {{ muted }};">n/a</span>
+{%- elif pct > 0 %}<span style="color: {{ up }};">&#9650; {{ "%.1f"|format(pct) }}%</span>
+{%- elif pct < 0 %}<span style="color: {{ down }};">&#9660; {{ "%.1f"|format(-pct) }}%</span>
+{%- else %}<span style="color: {{ muted }};">0.0%</span>
+{%- endif %}
+{% endmacro %}
+
+{# Headline figures for one site, compared with the previous month and the
+   same month a year earlier. `rows` is a list of (key, label, kind). #}
+{% macro summary_table(summaries, rows) %}
+{% set this, prev, last_year = summaries %}
+{{ table_start([("", "left"), (months[0], "right"), (months[1], "right"), ("Change", "right"), (months[2], "right"), ("Change", "right")]) }}
+{% for key, label, kind in rows if key in this %}
+{{ row_start(loop) }}<td>{{ label }}</td><td align="right" nowrap><b>{{ fmt(this[key], kind) }}</b></td><td align="right" nowrap>{{ fmt(prev[key], kind) }}</td><td align="right" nowrap>{{ change(this[key], prev[key]) }}</td><td align="right" nowrap>{{ fmt(last_year[key], kind) }}</td><td align="right" nowrap>{{ change(this[key], last_year[key]) }}</td></tr>
+{% endfor %}
+</table>
+{% endmacro %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GroundUp stats: {{ month }}</title>
+<style>
+  td, th { font-family: Inter, 'Helvetica Neue', Arial, sans-serif; color: {{ dark }}; }
+</style>
+</head>
+<body style="margin: 0; padding: 0; background: #ffffff;">
+<table role="presentation" cellpadding="0" cellspacing="0" style="width: 100%;">
+<tr><td style="padding: 0 12px;">
+<table role="presentation" cellpadding="0" cellspacing="0" style="width: 100%; max-width: 760px; margin: 0 auto;">
+<tr><td>
+
+{# ---- Header ---- #}
+<div style="background: {{ dark }}; border-bottom: 4px solid {{ accent }}; padding: 16px 20px; margin-top: 12px;">
+<div style="{{ font }} color: #ffffff; font-size: 22px; font-weight: bold;">GroundUp stats: {{ month }}</div>
+<div style="{{ font }} color: #cfd3d4; font-size: 13px; margin-top: 4px;">Generated {{ generated }}</div>
+</div>
+
+{# ---- 1. GroundUp website ---- #}
+<h2 style="{{ h2 }}">GroundUp website</h2>
+<p style="{{ note }}">Whole calendar month.</p>
+{{ summary_table(groundup_summaries, summary_rows) }}
+
+{# ---- 2. Articles published in the month ---- #}
+<h2 style="{{ h2 }}">Articles published in {{ month }}</h2>
+<p style="{{ note }}">{{ articles|length }} articles with more than {{ article_min_pageviews|number }} views, counting views from {{ window }}.</p>
+{{ table_start([("Article", "left"), ("Published", "left"), ("Views", "right"), ("Unique views", "right"), ("Avg time", "right")]) }}
+{% for art in articles %}
+{{ row_start(loop) }}<td><a href="{{ art.url }}" style="{{ a }}">{{ art.slug }}</a></td><td nowrap>{{ art.published.strftime("%d %b") }}</td><td align="right" nowrap>{{ art.pageviews|number }}</td><td align="right" nowrap>{{ art.unique_pageviews|number }}</td><td align="right" nowrap>{{ art.avg_time|duration }}</td></tr>
+{% endfor %}
+</table>
+<p style="{{ note }}">Avg time is understated: Matomo can only time a page when the reader goes on to another page, so readers who read one article and leave aren't counted. View counts are minimums (Matomo groups some low-traffic views as "Others").</p>
+
+{# ---- 3. Republication ---- #}
+<h2 style="{{ h2 }}">Republication of articles published in {{ month }}</h2>
+<p style="{{ note }}">{{ republished|length }} articles with more than {{ republished_min_hits|number }} hits on other sites, counting hits from {{ window }}. Top sites shows up to three sites with more than {{ top_site_min_hits|number }} hits each.</p>
+{{ table_start([("Article", "left"), ("Published", "left"), ("Sites", "right"), ("Hits", "right"), ("Top sites", "left")]) }}
+{% for art in republished %}
+{{ row_start(loop) }}<td><a href="{{ art.url }}" style="{{ a }}">{{ art.slug }}</a></td><td nowrap>{{ art.published.strftime("%d %b") }}</td><td align="right" nowrap>{{ art.sites|number }}</td><td align="right" nowrap>{{ art.hits|number }}</td><td style="font-size: 13px;">
+{%- for site, hits in art.top_sites %}{{ site }}&nbsp;({{ hits|number }}){% if not loop.last %}, {% endif %}{% else %}&ndash;{% endfor -%}
+</td></tr>
+{% endfor %}
+</table>
+
+{# ---- 5. Puzzles ---- #}
+<h2 style="{{ h2 }}">Puzzles website</h2>
+<p style="{{ note }}">Whole calendar month.</p>
+{{ summary_table(puzzle_summaries, puzzle_summary_rows) }}
+
+<h2 style="{{ h2 }}">Top {{ puzzle_pages|length }} puzzle pages</h2>
+<p style="{{ note }}">Whole calendar month.</p>
+{{ table_start([("Page", "left"), ("Views", "right"), ("Unique views", "right"), ("Avg time", "right")]) }}
+{% for page in puzzle_pages %}
+{{ row_start(loop) }}<td><a href="{{ puzzles_site_url }}{{ page.path }}" style="{{ a }}">{{ page.path }}</a></td><td align="right" nowrap>{{ page.pageviews|number }}</td><td align="right" nowrap>{{ page.unique_pageviews|number }}</td><td align="right" nowrap>{{ page.avg_time|duration }}</td></tr>
+{% endfor %}
+</table>
+
+{# ---- Footer ---- #}
+<p style="{{ note }} margin-top: 32px; padding-top: 8px; border-top: 1px solid #d6d6da;">Figures from Matomo and the GroundUp republication counter. Changes are against the previous month and the same month a year earlier.</p>
+
+</td></tr>
+</table>
+</td></tr>
+</table>
+</body>
+</html>

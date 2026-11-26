@@ -13,7 +13,8 @@ dependencies and abstractions, and explain what you changed and why.
 ## Usage
 
 ```bash
-python report.py 202501      # report on January 2025
+python report.py 202501                  # writes report-202501.html
+python report.py 202501 --output x.html  # writes x.html
 ```
 
 The virtualenv is `env/` (not `.venv/`), e.g. `env/bin/python report.py 202501`.
@@ -36,10 +37,12 @@ arguments so they can be understood and tested on their own.
 
 ## Files
 
-- `report.py`: CLI entry point. Parses the argument, loads settings,
-  orchestrates data fetching, outputs the report. Currently prints a plain-text
-  table; its formatting helpers (`fmt_value`, `fmt_change`) are temporary and
-  will move into a Jinja2 template.
+- `report.py`: CLI entry point. Parses the arguments, loads settings, fetches
+  all data, prepares it (`popular_articles`, `republished_articles`,
+  `top_pages`) and renders `templates/report.html` (`render_report`). Jinja2
+  filters: `number`, `duration`, `pct_change` (returns a float; the template
+  decides arrow and colour). No plain-text output any more.
+- `templates/report.html`: the email-safe HTML template (see section 6).
 - `periods.py`: `Month` dataclass. Parses `YYYYMM`, gives `previous()`,
   `year_earlier()`, `matomo_date`, `has_finished()`. No Matomo knowledge.
 - `matomo.py`: minimal Matomo Reporting API client (`Matomo.call`) plus
@@ -129,6 +132,20 @@ arguments so they can be understood and tested on their own.
    simple tables, no JavaScript, no external stylesheets. Changes shown as
    coloured ▲/▼ percentages. Planned flags: `--output FILE`, `--email`, maybe
    `--cache` for development.
+   - **Size limit:** Gmail clips emails over ~102 KB. Per-cell `style="…"`
+     made a report 259 KB, so cells use HTML attributes instead
+     (`cellpadding` on tables, `align`/`nowrap` on cells, `bgcolor` on rows
+     for header and striping); font/colour set once per table plus a small
+     `<style>` in `<head>` for Outlook. Jinja `trim_blocks`/`lstrip_blocks`
+     strip whitespace. A fake report with 113 article rows is ~70 KB.
+   - Colours from groundup.org.za's CSS: dark `#151f22` (header), cyan
+     `#00b1f0` (accent), links `#0250bb`, beige `#ebebe0` (table headers);
+     ▲ green `#1f8a5b`, ▼ red `#c0392b`.
+   - Article slugs link to the article; puzzle paths to `PUZZLES_SITE_URL`
+     (a constant in `report.py`). Default output `report-YYYYMM.html`
+     (`*.html` is gitignored).
+   - **Status: written, tested with fake data only.** `--email` comes with
+     section 7.
 
 7. **Email and cron**: send via SMTP (credentials in `local_settings.py`) to
    all@groundup on the 15th of each month, reporting on the previous month.
@@ -146,7 +163,12 @@ machine-specific.
 
 ## Next steps
 
-1. HTML template (section 6), then videos, email, cron.
-2. Open question from section 2: article avg time on page is very low
+1. Owner runs the HTML report on real data and checks it in a browser
+   (and ideally in Gmail/Outlook).
+2. Then videos, email, cron.
+3. Open question from section 2: article avg time on page is very low
    (0:10-0:30), probably because Matomo can't time single-page visits without
    the heartbeat timer. Decide whether to enable it or drop the column.
+   Checked Nov 2026: neither groundup.org.za nor the puzzles site sets
+   `enableHeartBeatTimer`; owner is considering it. (groundup.org.za also
+   loads Matomo Tag Manager; owner confirmed it doesn't double-count.)

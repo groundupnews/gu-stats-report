@@ -2,16 +2,21 @@
 """GroundUp monthly stats report.
 
 Usage:
-    python report.py 202501                # report on January 2025
-    python report.py 202501 --warnothers   # also warn about Matomo "Others" rows
+    python report.py 202501                  # writes report-202501.html
+    python report.py 202501 --output x.html  # writes x.html
+    python report.py 202501 --warnothers     # also warn about Matomo "Others" rows
 
-For now this prints, as plain text, the Matomo headline figures, popular
-articles, republication counts and puzzles. Later steps add videos and HTML.
+Fetches the figures (Matomo, the GroundUp API, the republication counter)
+and renders them into an email-safe HTML page with templates/report.html.
+Videos and emailing are still to come.
 """
 
 import argparse
 import datetime
 import sys
+from pathlib import Path
+
+import jinja2
 
 from counter import republication_hits
 from groundup import articles_published
@@ -58,6 +63,14 @@ TOP_SITE_MIN_HITS = 500
 # How many of the puzzles site's most viewed pages to list.
 TOP_PUZZLE_PAGES = 30
 
+# Puzzle pages are linked to this site (Matomo gives us only their paths).
+PUZZLES_SITE_URL = "https://puzzles.groundup.org.za"
+
+# The HTML template lives in templates/ next to this file. Using this file's
+# location (rather than the current directory) means cron can run the script
+# from anywhere.
+TEMPLATES_DIR = Path(__file__).parent / "templates"
+
 
 def month_arg(text):
     """argparse 'type' function: turns 'YYYYMM' into a Month."""
@@ -76,6 +89,10 @@ def parse_args(argv=None):
         "month", type=month_arg, help="year and month to report on, as YYYYMM"
     )
     parser.add_argument(
+        "--output",
+        help="HTML file to write (default: report-YYYYMM.html)",
+    )
+    parser.add_argument(
         "--warnothers",
         action="store_true",  # False unless the flag is given
         help='warn about Matomo rows with no URL (e.g. "Others"), which mean '
@@ -84,58 +101,34 @@ def parse_args(argv=None):
     return parser.parse_args(argv)
 
 
-# --- Formatting helpers (these move into the HTML template later) ---------
+# --- Template filters --------------------------------------------------------
+# Used in the template as {{ value|number }}, {{ value|duration }} and
+# {{ current|pct_change(previous) }}. Missing values (None) show as "n/a".
 
-def fmt_value(value, kind):
+def number(value):
+    """1234567 -> '1,234,567'."""
     if value is None:
         return "n/a"
-    if kind == "duration":
-        minutes, seconds = divmod(round(float(value)), 60)
-        return f"{minutes}:{seconds:02d}"
     return f"{int(value):,}"
 
 
-def fmt_change(current, previous):
-    """Percentage change, e.g. '+12.3%'. 'n/a' if it can't be computed."""
-    if current is None or not previous:
+def duration(seconds):
+    """95 -> '1:35' (minutes:seconds)."""
+    if seconds is None:
         return "n/a"
-    change = (float(current) - float(previous)) / float(previous) * 100
-    return f"{change:+.1f}%"
+    minutes, seconds = divmod(round(float(seconds)), 60)
+    return f"{minutes}:{seconds:02d}"
 
 
-def print_table(title, headers, rows):
-    """Print a titled table: first column left-aligned, the rest right-aligned."""
-    widths = [max(len(r[i]) for r in [headers] + rows) for i in range(len(headers))]
-    print(f"\n{title}\n{'=' * len(title)}")
-    for row in [headers] + rows:
-        cells = [row[0].ljust(widths[0])]
-        cells += [cell.rjust(w) for cell, w in zip(row[1:], widths[1:])]
-        print("  ".join(cells))
+def pct_change(current, previous):
+    """Percentage change from previous to current, e.g. 12.3, or None if it
+    can't be computed. The template decides how to show it (colour, arrow)."""
+    if current is None or not previous:
+        return None
+    return (float(current) - float(previous)) / float(previous) * 100
 
 
-def print_summary(title, months, summaries, summary_rows=SUMMARY_ROWS):
-    """Print a table: this month, previous month, change, year earlier, change.
-
-    `summary_rows` says which figures to show, in the form of SUMMARY_ROWS.
-    """
-    this, prev, last_year = summaries
-    headers = ["", str(months[0]), str(months[1]), "Change",
-               str(months[2]), "Change"]
-    rows = []
-    for key, label, kind in summary_rows:
-        if key not in this:
-            continue  # e.g. home page rows for a site with no home page URL
-        rows.append([
-            label,
-            fmt_value(this[key], kind),
-            fmt_value(prev[key], kind),
-            fmt_change(this[key], prev[key]),
-            fmt_value(last_year[key], kind),
-            fmt_change(this[key], last_year[key]),
-        ])
-
-    print_table(title, headers, rows)
-
+# --- Preparing the data --------------------------------------------------------
 
 def popular_articles(articles, pageviews):
     """Join the article list to Matomo's figures and keep the popular ones.
@@ -154,93 +147,63 @@ def popular_articles(articles, pageviews):
     return popular
 
 
-def print_articles(title, articles):
-    """Print a table of articles: slug, published, views, unique, avg time."""
-    headers = ["Article", "Published", "Views", "Unique views", "Avg time"]
-    rows = [
-        [
-            a["slug"],
-            a["published"].strftime("%d %b"),  # e.g. "01 Oct"
-            fmt_value(a["pageviews"], "number"),
-            fmt_value(a["unique_pageviews"], "number"),
-            fmt_value(a["avg_time"], "duration"),
-        ]
-        for a in articles
-    ]
-
-    print_table(title, headers, rows)
-    print(f"({len(articles)} articles with more than "
-          f"{ARTICLE_MIN_PAGEVIEWS:,} views)")
-
-
 def republished_articles(articles, hits):
     """Join the article list to the counter's figures and keep the popular ones.
 
     `articles` comes from groundup.articles_published(); `hits` from
     counter.republication_hits(), keyed by pk. Returns copies of the article
-    dicts with "hits" and "sites" added, most hits first.
+    dicts with "hits", "sites" and "top_sites" added, most hits first.
+    "top_sites" keeps only sites with more than TOP_SITE_MIN_HITS hits.
     """
     republished = []
     for article in articles:
         figures = hits.get(article["pk"])
         if figures and figures["hits"] > REPUBLISHED_MIN_HITS:
-            republished.append({**article, **figures})
+            top_sites = [(site, n) for site, n in figures["top_sites"]
+                         if n > TOP_SITE_MIN_HITS]
+            republished.append({**article, **figures, "top_sites": top_sites})
     republished.sort(key=lambda a: a["hits"], reverse=True)
     return republished
 
 
-def print_republished(title, articles):
-    """Print a table of articles: slug, published, sites, hits, top sites."""
-    headers = ["Article", "Published", "Sites", "Hits", "Top sites"]
-    rows = [
-        [
-            a["slug"],
-            a["published"].strftime("%d %b"),
-            fmt_value(a["sites"], "number"),
-            fmt_value(a["hits"], "number"),
-            # e.g. "news24.com (4,100), iol.co.za (900)"
-            ", ".join(
-                f"{site} ({hits:,})"
-                for site, hits in a["top_sites"]
-                if hits > TOP_SITE_MIN_HITS
-            ),
-        ]
-        for a in articles
-    ]
+def top_pages(pageviews):
+    """The TOP_PUZZLE_PAGES most viewed pages, most first.
 
-    print_table(title, headers, rows)
-    print(f"({len(articles)} articles with more than "
-          f"{REPUBLISHED_MIN_HITS:,} republication hits)")
-
-
-def print_top_pages(title, pageviews):
-    """Print the most viewed pages: path, views, unique views, avg time.
-
-    `pageviews` comes from matomo.pageviews_by_path(). Shows the
-    TOP_PUZZLE_PAGES pages with the most views.
+    `pageviews` comes from matomo.pageviews_by_path(), keyed by path. Returns
+    a list of its figures dicts, each with "path" added.
     """
-    # pageviews.items() gives (path, figures) pairs; sort by figures' views.
-    top = sorted(pageviews.items(), key=lambda p: p[1]["pageviews"], reverse=True)
-    headers = ["Page", "Views", "Unique views", "Avg time"]
-    rows = [
-        [
-            path,
-            fmt_value(f["pageviews"], "number"),
-            fmt_value(f["unique_pageviews"], "number"),
-            fmt_value(f["avg_time"], "duration"),
-        ]
-        for path, f in top[:TOP_PUZZLE_PAGES]
-    ]
-    print_table(title, headers, rows)
+    pages = [{"path": path, **figures} for path, figures in pageviews.items()]
+    pages.sort(key=lambda p: p["pageviews"], reverse=True)
+    return pages[:TOP_PUZZLE_PAGES]
+
+
+# --- Rendering -------------------------------------------------------------------
+
+def render_report(context):
+    """Fill in templates/report.html with the values in `context` (a dict)."""
+    env = jinja2.Environment(
+        loader=jinja2.FileSystemLoader(TEMPLATES_DIR),
+        autoescape=True,  # escape <, & etc. in values, e.g. odd page paths
+        # Don't leave a blank line or indentation behind wherever the
+        # template has a {% ... %} tag on its own line. Keeps the email small.
+        trim_blocks=True,
+        lstrip_blocks=True,
+    )
+    env.filters["number"] = number
+    env.filters["duration"] = duration
+    env.filters["pct_change"] = pct_change
+    return env.get_template("report.html").render(context)
 
 
 def main(argv=None):
     args = parse_args(argv)
     month = args.month
     months = [month, month.previous(), month.year_earlier()]
-
+    output = args.output or f"report-{month.year}{month.month:02d}.html"
     matomo = Matomo(settings.MATOMO_URL, settings.MATOMO_TOKEN)
-    summaries = [
+
+    # --- 1. GroundUp website headline figures -------------------------------
+    groundup_summaries = [
         site_summary(
             matomo,
             settings.MATOMO_SITE_ID_GROUNDUP,
@@ -249,9 +212,8 @@ def main(argv=None):
         )
         for m in months
     ]
-    print_summary(f"GroundUp website: {month}", months, summaries)
 
-    # --- Articles published in the month ----------------------------------
+    # --- 2. Articles published in the month ----------------------------------
     # Views are counted from the 1st of the month up to today (when the report
     # is run). Starting on the 1st is the same as starting at each article's
     # publication, since an article has no views before it's published.
@@ -265,13 +227,8 @@ def main(argv=None):
         path_prefix="/article/",
         warn_others=args.warnothers,
     )
-    window = f"{month.first_day:%d %b %Y} to {today:%d %b %Y}"
-    print_articles(
-        f"Articles published in {month}: views {window}",
-        popular_articles(articles, pageviews),
-    )
 
-    # --- Republication of articles published in the month -------------------
+    # --- 3. Republication of articles published in the month -----------------
     # Same counting window and article list as above, but a separate report:
     # an article can be widely republished without many views on GroundUp.
     hits = republication_hits(
@@ -281,28 +238,41 @@ def main(argv=None):
         month.first_day,
         today,
     )
-    print_republished(
-        f"Republication of articles published in {month}: hits {window}",
-        republished_articles(articles, hits),
-    )
 
-    # --- Puzzles site --------------------------------------------------------
+    # --- 5. Puzzles site -------------------------------------------------------
     # Its own Matomo site. Calendar month only (no "up to today" window):
     # puzzles aren't tied to a publication date in our data.
     puzzle_summaries = [
         site_summary(matomo, settings.MATOMO_SITE_ID_PUZZLES, m) for m in months
     ]
-    print_summary(f"Puzzles website: {month}", months, puzzle_summaries,
-                  PUZZLE_SUMMARY_ROWS)
-
-    puzzle_pages = pageviews_by_path(
+    puzzle_pageviews = pageviews_by_path(
         matomo,
         settings.MATOMO_SITE_ID_PUZZLES,
         period="month",
         date=month.matomo_date,
         warn_others=args.warnothers,
     )
-    print_top_pages(f"Top {TOP_PUZZLE_PAGES} puzzle pages: {month}", puzzle_pages)
+
+    # --- Render and write the HTML ------------------------------------------
+    html = render_report({
+        "month": month,
+        "months": months,
+        "generated": datetime.datetime.now().strftime("%-d %B %Y, %H:%M"),
+        "window": f"{month.first_day:%-d %b %Y} to {today:%-d %b %Y}",
+        "groundup_summaries": groundup_summaries,
+        "summary_rows": SUMMARY_ROWS,
+        "articles": popular_articles(articles, pageviews),
+        "article_min_pageviews": ARTICLE_MIN_PAGEVIEWS,
+        "republished": republished_articles(articles, hits),
+        "republished_min_hits": REPUBLISHED_MIN_HITS,
+        "top_site_min_hits": TOP_SITE_MIN_HITS,
+        "puzzle_summaries": puzzle_summaries,
+        "puzzle_summary_rows": PUZZLE_SUMMARY_ROWS,
+        "puzzle_pages": top_pages(puzzle_pageviews),
+        "puzzles_site_url": PUZZLES_SITE_URL,
+    })
+    Path(output).write_text(html, encoding="utf-8")
+    print(f"Wrote {output}")
 
 
 if __name__ == "__main__":
